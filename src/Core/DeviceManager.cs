@@ -34,6 +34,7 @@ namespace Voltide.Core
             _providers.Add(new XInputProvider());
             _providers.Add(new RazerProvider());
             _providers.Add(new HeadsetProvider());
+            _providers.Add(new TaiduProvider());
         }
 
         public List<DeviceSnapshot> Snapshot()
