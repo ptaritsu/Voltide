@@ -93,9 +93,12 @@ namespace Voltide.UI
 
         public event EventHandler QuitRequested;
         public event EventHandler AutostartToggled;
+        public event EventHandler LogToggled;
 
         private bool _autostartOn;
         private float _switchT;                                  // 0 = off, 1 = on (animated)
+        private bool _logOn;
+        private float _logT;
         private System.Windows.Forms.Timer _switchAnim;
         private bool _autostartEnabled = true;
 
@@ -106,11 +109,18 @@ namespace Voltide.UI
             set { _autostartOn = value; _switchT = value ? 1f : 0f; }
         }
 
+        /// <summary>Refresh-log switch; host persists it with the other settings.</summary>
+        public bool LogOn
+        {
+            get { return _logOn; }
+            set { _logOn = value; _logT = value ? 1f : 0f; }
+        }
+
         /// <summary>False when the process is not a real Voltide.exe (in-memory dev build),
         /// where writing a Run entry would point at powershell.exe instead.</summary>
         public bool AutostartEnabled { get { return _autostartEnabled; } set { _autostartEnabled = value; } }
 
-        public int LineCount { get { return _rows.Count + 2; } }   // + autostart + quit
+        public int LineCount { get { return _rows.Count + 3; } }   // + autostart + log + quit
 
         public MenuPanel(List<MenuRow> rows, float scale,
                          Font nameFont, Font valueFont, Font cnFont, Font markFont)
@@ -121,7 +131,7 @@ namespace Voltide.UI
             _valueFont = valueFont;
             _cnFont = cnFont;
             _markFont = markFont;
-            _hover = new float[rows.Count + 2];
+            _hover = new float[rows.Count + 3];
 
             SetStyle(ControlStyles.OptimizedDoubleBuffer
                      | ControlStyles.AllPaintingInWmPaint
@@ -165,7 +175,7 @@ namespace Voltide.UI
             if (hit != _hot)
             {
                 _hot = hit;
-                Cursor = (hit >= _rows.Count && hit <= _rows.Count + 1) ? Cursors.Hand : Cursors.Default;
+                Cursor = (hit >= _rows.Count && hit <= _rows.Count + 2) ? Cursors.Hand : Cursors.Default;
                 StartAnim();
             }
             base.OnMouseMove(e);
@@ -193,6 +203,13 @@ namespace Voltide.UI
                 if (AutostartToggled != null) AutostartToggled(this, EventArgs.Empty);
             }
             else if (hit == _rows.Count + 1)
+            {
+                // Refresh-log row.
+                _logOn = !_logOn;
+                StartSwitchAnim();
+                if (LogToggled != null) LogToggled(this, EventArgs.Empty);
+            }
+            else if (hit == _rows.Count + 2)
             {
                 if (QuitRequested != null) QuitRequested(this, EventArgs.Empty);
             }
@@ -312,10 +329,11 @@ namespace Voltide.UI
             float top = RowTop(index) * s;
             float h = RowH * s;
 
-            // Row order: devices..., autostart, quit.
+            // Row order: devices..., autostart, log, quit.
             bool isAutostart = index == _rows.Count;
-            bool isQuit = index == _rows.Count + 1;
-            MenuRow row = (isQuit || isAutostart) ? null : _rows[index];
+            bool isLog = index == _rows.Count + 1;
+            bool isQuit = index == _rows.Count + 2;
+            MenuRow row = (isQuit || isAutostart || isLog) ? null : _rows[index];
 
             // hover wash, kept faint so the grid stays intact
             float hover = _hover[index];
@@ -363,7 +381,19 @@ namespace Voltide.UI
                                      top + CjkBaseline * s - FontManager.Ascent(_cnFont), sf);
                     }
 
-                    DrawSwitch(g, s, top, lift);
+                    DrawSwitch(g, s, top, lift, _autostartOn, _switchT, _autostartEnabled);
+                    return;
+                }
+
+                if (isLog)
+                {
+                    using (SolidBrush brush = new SolidBrush(Lift(Soft, lift)))
+                    {
+                        g.DrawString("记录日志", _cnFont, brush, TextX * s,
+                                     top + CjkBaseline * s - FontManager.Ascent(_cnFont), sf);
+                    }
+
+                    DrawSwitch(g, s, top, lift, _logOn, _logT, true);
                     return;
                 }
 
@@ -435,19 +465,19 @@ namespace Voltide.UI
                 _switchAnim.Interval = 16;
                 _switchAnim.Tick += delegate
                 {
-                    float target = _autostartOn ? 1f : 0f;
-                    float delta = target - _switchT;
+                    bool moving = false;
 
-                    if (Math.Abs(delta) < 0.02f)
-                    {
-                        _switchT = target;
-                        _switchAnim.Stop();
-                    }
-                    else
-                    {
-                        _switchT += delta * 0.32f;
-                    }
+                    float targetA = _autostartOn ? 1f : 0f;
+                    float deltaA = targetA - _switchT;
+                    if (Math.Abs(deltaA) < 0.02f) _switchT = targetA;
+                    else { _switchT += deltaA * 0.32f; moving = true; }
 
+                    float targetL = _logOn ? 1f : 0f;
+                    float deltaL = targetL - _logT;
+                    if (Math.Abs(deltaL) < 0.02f) _logT = targetL;
+                    else { _logT += deltaL * 0.32f; moving = true; }
+
+                    if (!moving) _switchAnim.Stop();
                     Invalidate();
                 };
             }
@@ -459,7 +489,8 @@ namespace Voltide.UI
         /// The autostart pill: 28.7 x 9.02 with r=4.51, knob 4.51 at cy 15.
         /// Off keeps the same geometry with a grey track and the knob on the left.
         /// </summary>
-        private void DrawSwitch(Graphics g, float s, float rowTop, int lift)
+        private void DrawSwitch(Graphics g, float s, float rowTop, int lift,
+                                bool on, float rawT, bool enabled)
         {
             const float TrackX = 210.81f;
             const float TrackY = 10.49f;
@@ -476,11 +507,11 @@ namespace Voltide.UI
             float radius = TrackH * s / 2f;
 
             // Ease the raw progress so the knob decelerates into place.
-            float t = _switchT;
+            float t = rawT;
             float eased = 1f - (1f - t) * (1f - t);
 
             Color track;
-            if (!_autostartEnabled) track = Color.FromArgb(58, 58, 58);
+            if (!enabled) track = Color.FromArgb(58, 58, 58);
             else track = Mix(BarBack, Lift(Accent, lift), eased);
 
             using (GraphicsPath path = Round(new RectangleF(x, y, w, h), radius))
@@ -492,7 +523,7 @@ namespace Voltide.UI
             float knobR = KnobR * s;
             float cx = (KnobOffX + (KnobOnX - KnobOffX) * eased) * s;
             float cy = y + h / 2f;
-            Color knobColor = _autostartEnabled ? Color.White : Color.FromArgb(140, 140, 140);
+            Color knobColor = enabled ? Color.White : Color.FromArgb(140, 140, 140);
 
             using (SolidBrush knob = new SolidBrush(knobColor))
             {

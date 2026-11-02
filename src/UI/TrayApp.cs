@@ -64,6 +64,8 @@ namespace Voltide.UI
                 ApplyInterval();
             };
 
+            RefreshLogger.Load();
+
             _timer = new System.Windows.Forms.Timer();
             _timer.Interval = _form.RefreshSeconds * 1000;
             _timer.Tick += delegate
@@ -160,6 +162,8 @@ namespace Voltide.UI
 
             MenuPanel captured = panel;
             panel.AutostartToggled += delegate { Autostart.Set(captured.AutostartOn); };
+            panel.LogOn = RefreshLogger.Enabled;
+            panel.LogToggled += delegate { RefreshLogger.Enabled = captured.LogOn; };
 
             form.Controls.Add(panel);
 
@@ -289,6 +293,14 @@ namespace Voltide.UI
                 finally
                 {
                     _refreshing = false;
+                }
+
+                try
+                {
+                    RefreshLogger.Write(_manager.Snapshot());
+                }
+                catch
+                {
                 }
 
                 try
