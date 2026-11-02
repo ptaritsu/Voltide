@@ -14,6 +14,12 @@ namespace Voltide.UI
         [DllImport("user32.dll")]
         private static extern bool DestroyIcon(IntPtr hIcon);
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr WindowFromPoint(Point point);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
         private readonly DeviceManager _manager;
         private readonly NotifyIcon _tray;
         private readonly MainForm _form;
@@ -24,6 +30,13 @@ namespace Voltide.UI
 
         // A second right-click replaces the popup instead of stacking another copy.
         private TrayMenuForm _menuForm;
+
+        // Hover peek: battery list under the pointer, no native "Voltide" tooltip.
+        // NotifyIcon has no MouseEnter/MouseLeave on .NET Framework, so hover is
+        // tracked via MouseMove + WindowFromPoint polling while the peek is up.
+        private TrayMenuForm _hoverForm;
+        private IntPtr _trayHwnd;
+        private readonly System.Windows.Forms.Timer _hoverPollTimer;
 
 
         internal static readonly Color MenuMuted = Color.FromArgb(135, 135, 135); // card status line
@@ -48,11 +61,50 @@ namespace Voltide.UI
 
             _tray = new NotifyIcon();
             _tray.Icon = IconFactory.ToIcon(32);
-            _tray.Text = "Voltide";   // Windows tooltip on hover
+            // No native tooltip: hover opens the battery peek instead of "Voltide".
+            _tray.Text = "";
             _tray.Visible = true;
+
+            _tray.MouseMove += delegate(object s, MouseEventArgs e)
+            {
+                // Over the icon: remember its window so a stationary pointer still
+                // counts as hovering (MouseMove stops once the cursor stops).
+                IntPtr hwnd = WindowFromPoint(Cursor.Position);
+                if (hwnd != IntPtr.Zero) _trayHwnd = GetAncestor(hwnd, 2 /* GA_ROOT */);
+                ShowHoverPeek();
+            };
+
+            _hoverPollTimer = new System.Windows.Forms.Timer();
+            _hoverPollTimer.Interval = 120;
+            _hoverPollTimer.Tick += delegate
+            {
+                if (_hoverForm == null || _hoverForm.IsDisposed)
+                {
+                    _hoverPollTimer.Stop();
+                    return;
+                }
+
+                Point pt = Cursor.Position;
+                bool overPeek = _hoverForm.Bounds.Contains(pt);
+                bool overTray = false;
+                if (_trayHwnd != IntPtr.Zero)
+                {
+                    IntPtr hwnd = WindowFromPoint(pt);
+                    if (hwnd != IntPtr.Zero)
+                        overTray = GetAncestor(hwnd, 2) == _trayHwnd;
+                }
+
+                if (overPeek)
+                {
+                    return;
+                }
+
+                if (!overTray) HideHoverPeek();
+            };
 
             _tray.MouseUp += delegate(object s, MouseEventArgs e)
             {
+                HideHoverPeek();
                 if (e.Button == MouseButtons.Left) { _form.ShowPanel(); return; }
                 ShowMenuAboveRight();
             };
@@ -130,6 +182,67 @@ namespace Voltide.UI
             catch
             {
             }
+        }
+
+        // ----------------------------------------------------------- hover peek
+
+        private void StartHoverPoll()
+        {
+            if (_hoverPollTimer != null && !_hoverPollTimer.Enabled)
+                _hoverPollTimer.Start();
+        }
+
+        private void StopHoverPoll()
+        {
+            if (_hoverPollTimer != null) _hoverPollTimer.Stop();
+        }
+
+        /// <summary>
+        /// Device battery list on tray hover — the same rows as the right-click menu,
+        /// without autostart / log / quit. Positioned like the click menu.
+        /// </summary>
+        private void ShowHoverPeek()
+        {
+            if (_hoverForm != null && !_hoverForm.IsDisposed) { StartHoverPoll(); return; }
+            // A right-click menu owns the screen; don't stack a peek under it.
+            if (_menuForm != null && !_menuForm.IsDisposed) return;
+
+            MenuPanel panel = BuildMenu();
+            if (panel == null) return;
+
+            panel.ShowSettingsRows = false;
+
+            TrayMenuForm form = new TrayMenuForm();
+            form.CloseOnDeactivate = false;
+            form.Panel = panel;
+            form.ClientSize = panel.Size;
+            form.Controls.Add(panel);
+
+            Point p = Cursor.Position;
+            Rectangle screen = Screen.FromPoint(p).WorkingArea;
+
+            int x = p.X + 4;
+            int y = p.Y - panel.Height - 4;
+
+            if (x + panel.Width > screen.Right) x = p.X - panel.Width - 4;
+            if (y < screen.Top) y = p.Y + 4;
+
+            form.Location = new Point(x, y);
+            _hoverForm = form;
+
+            // Show without Activate: hovering must not steal focus from the app below.
+            form.Show();
+            StartHoverPoll();
+        }
+
+        private void HideHoverPeek()
+        {
+            StopHoverPoll();
+            if (_hoverForm != null && !_hoverForm.IsDisposed)
+            {
+                try { _hoverForm.Close(); } catch { }
+            }
+            _hoverForm = null;
         }
 
         /// <summary>
@@ -331,10 +444,18 @@ namespace Voltide.UI
         {
             // The popup is a separate top-level window: closing the tray app must not
             // leave it on screen.
+            HideHoverPeek();
+
             if (_menuForm != null && !_menuForm.IsDisposed)
             {
                 try { _menuForm.Close(); } catch { }
                 _menuForm = null;
+            }
+
+            if (_hoverPollTimer != null)
+            {
+                _hoverPollTimer.Stop();
+                _hoverPollTimer.Dispose();
             }
 
             if (_timer != null)

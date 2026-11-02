@@ -120,7 +120,26 @@ namespace Voltide.UI
         /// where writing a Run entry would point at powershell.exe instead.</summary>
         public bool AutostartEnabled { get { return _autostartEnabled; } set { _autostartEnabled = value; } }
 
-        public int LineCount { get { return _rows.Count + 3; } }   // + autostart + log + quit
+        private bool _showSettingsRows = true;
+
+        /// <summary>False for the hover peek: device rows only, no settings rows.</summary>
+        public bool ShowSettingsRows
+        {
+            get { return _showSettingsRows; }
+            set
+            {
+                if (_showSettingsRows == value) return;
+                _showSettingsRows = value;
+                // Height depends on LineCount; the ctor already sized for settings on.
+                Size = new Size((int)Math.Round(W * _scale),
+                                (int)Math.Round(TotalHeight() * _scale));
+            }
+        }
+
+        public int LineCount
+        {
+            get { return _rows.Count + (_showSettingsRows ? 3 : 0); }
+        }
 
         public MenuPanel(List<MenuRow> rows, float scale,
                          Font nameFont, Font valueFont, Font cnFont, Font markFont)
@@ -633,6 +652,9 @@ namespace Voltide.UI
 
         public MenuPanel Panel { get; set; }
 
+        /// <summary>Hover peek stays until the pointer leaves; the click menu still dismisses on Deactivate.</summary>
+        public bool CloseOnDeactivate = true;
+
         private bool _armed;
         private System.Windows.Forms.Timer _armTimer;
 
@@ -697,7 +719,7 @@ namespace Voltide.UI
         protected override void OnDeactivate(EventArgs e)
         {
             base.OnDeactivate(e);
-            if (_armed) Close();
+            if (CloseOnDeactivate && _armed) Close();
         }
 
         protected override bool ProcessDialogKey(Keys keyData)
