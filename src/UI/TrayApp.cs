@@ -184,6 +184,24 @@ namespace Voltide.UI
             }
         }
 
+        /// <summary>Opens &lt;exe dir&gt;/log in Explorer, creating it if needed.</summary>
+        private static void OpenLogFolder()
+        {
+            try
+            {
+                string dir = RefreshLogger.LogDirectory;
+                System.IO.Directory.CreateDirectory(dir);
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo("explorer.exe", dir)
+                    {
+                        UseShellExecute = true
+                    });
+            }
+            catch
+            {
+            }
+        }
+
         // ----------------------------------------------------------- hover peek
 
         private void StartHoverPoll()
@@ -277,6 +295,7 @@ namespace Voltide.UI
             panel.AutostartToggled += delegate { Autostart.Set(captured.AutostartOn); };
             panel.LogOn = RefreshLogger.Enabled;
             panel.LogToggled += delegate { RefreshLogger.Enabled = captured.LogOn; };
+            panel.OpenLogRequested += delegate { OpenLogFolder(); };
 
             form.Controls.Add(panel);
 

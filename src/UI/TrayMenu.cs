@@ -94,6 +94,7 @@ namespace Voltide.UI
         public event EventHandler QuitRequested;
         public event EventHandler AutostartToggled;
         public event EventHandler LogToggled;
+        public event EventHandler OpenLogRequested;
 
         private bool _autostartOn;
         private float _switchT;                                  // 0 = off, 1 = on (animated)
@@ -138,7 +139,7 @@ namespace Voltide.UI
 
         public int LineCount
         {
-            get { return _rows.Count + (_showSettingsRows ? 3 : 0); }
+            get { return _rows.Count + (_showSettingsRows ? 4 : 0); }
         }
 
         public MenuPanel(List<MenuRow> rows, float scale,
@@ -150,7 +151,7 @@ namespace Voltide.UI
             _valueFont = valueFont;
             _cnFont = cnFont;
             _markFont = markFont;
-            _hover = new float[rows.Count + 3];
+            _hover = new float[rows.Count + 4];
 
             SetStyle(ControlStyles.OptimizedDoubleBuffer
                      | ControlStyles.AllPaintingInWmPaint
@@ -194,7 +195,7 @@ namespace Voltide.UI
             if (hit != _hot)
             {
                 _hot = hit;
-                Cursor = (hit >= _rows.Count && hit <= _rows.Count + 2) ? Cursors.Hand : Cursors.Default;
+                Cursor = (hit >= _rows.Count && hit <= _rows.Count + 3) ? Cursors.Hand : Cursors.Default;
                 StartAnim();
             }
             base.OnMouseMove(e);
@@ -229,6 +230,11 @@ namespace Voltide.UI
                 if (LogToggled != null) LogToggled(this, EventArgs.Empty);
             }
             else if (hit == _rows.Count + 2)
+            {
+                // Open the log folder in Explorer.
+                if (OpenLogRequested != null) OpenLogRequested(this, EventArgs.Empty);
+            }
+            else if (hit == _rows.Count + 3)
             {
                 if (QuitRequested != null) QuitRequested(this, EventArgs.Empty);
             }
@@ -348,11 +354,12 @@ namespace Voltide.UI
             float top = RowTop(index) * s;
             float h = RowH * s;
 
-            // Row order: devices..., autostart, log, quit.
+            // Row order: devices..., autostart, log, open log, quit.
             bool isAutostart = index == _rows.Count;
             bool isLog = index == _rows.Count + 1;
-            bool isQuit = index == _rows.Count + 2;
-            MenuRow row = (isQuit || isAutostart || isLog) ? null : _rows[index];
+            bool isOpenLog = index == _rows.Count + 2;
+            bool isQuit = index == _rows.Count + 3;
+            MenuRow row = (isQuit || isAutostart || isLog || isOpenLog) ? null : _rows[index];
 
             // hover wash, kept faint so the grid stays intact
             float hover = _hover[index];
@@ -378,6 +385,16 @@ namespace Voltide.UI
             using (StringFormat sf = new StringFormat(StringFormat.GenericTypographic))
             {
                 sf.FormatFlags |= StringFormatFlags.NoWrap;
+
+                if (isOpenLog)
+                {
+                    using (SolidBrush brush = new SolidBrush(Lift(Soft, lift)))
+                    {
+                        g.DrawString("打开日志", _cnFont, brush, TextX * s,
+                                     top + CjkBaseline * s - FontManager.Ascent(_cnFont), sf);
+                    }
+                    return;
+                }
 
                 if (isQuit)
                 {

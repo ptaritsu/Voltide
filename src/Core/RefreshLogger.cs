@@ -36,6 +36,16 @@ namespace Voltide.Core
             }
         }
 
+        /// <summary>Folder that holds the daily yyMMdd.log files (created on demand).</summary>
+        public static string LogDirectory
+        {
+            get
+            {
+                return Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory ?? ".", "log");
+            }
+        }
+
         public static void Load()
         {
             try
@@ -62,8 +72,7 @@ namespace Voltide.Core
             try
             {
                 DateTime now = DateTime.Now;
-                string dir = Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory ?? ".", "log");
+                string dir = LogDirectory;
                 Directory.CreateDirectory(dir);
 
                 string path = Path.Combine(dir, now.ToString("yyMMdd") + ".log");
